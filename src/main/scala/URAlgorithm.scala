@@ -507,7 +507,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
         val hits = (searchHits \ "hits" \ "hits").extract[Seq[JValue]]
         val recs = hits.map { hit =>
           val source = hit \ "_source"
-          val properties = queryExtraProperiesNames.map(prop => (prop -> (source \ prop).extract[String])).toMap
+          val properties = queryExtraProperiesNames.map(prop => (prop, (source \ prop).extractOpt[String]))
+            .filter(_._2.nonEmpty).map(p => (p._1 -> p._2.get)).toMap
           if (withRanks) {
             val ranks: Map[String, Double] = rankingsParams map { backfillParams =>
               val backfillType = backfillParams.`type`.getOrElse(DefaultURAlgoParams.BackfillType)
@@ -515,11 +516,11 @@ class URAlgorithm(val ap: URAlgorithmParams)
               backfillFieldName -> (source \ backfillFieldName).extract[Double]
             } toMap
 
-            ItemScore((hit \ "_id").extract[String], (hit \ "_score").extract[Double],
+            ItemScore((hit \ "_id").extract[String], (source \ "type").extract[String], (hit \ "_score").extract[Double],
               ranks = if (ranks.nonEmpty) Some(ranks) else None,
               properties = if (properties.nonEmpty) Some(properties) else None)
           } else {
-            ItemScore((hit \ "_id").extract[String], (hit \ "_score").extract[Double],
+            ItemScore((hit \ "_id").extract[String], (source \ "type").extract[String], (hit \ "_score").extract[Double],
               properties = if (properties.nonEmpty) Some(properties) else None)
           }
         }.toArray

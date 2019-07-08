@@ -26,6 +26,8 @@ import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import com.actionml.helpers.{ ActionID, ItemID }
 import com.actionml.helpers._
+import org.joda.time.DateTime
+import org.json4s.JsonAST.JString
 
 /** Taken from engine.json these are passed in to the DataSource constructor
  *
@@ -98,7 +100,9 @@ class DataSource(val dsp: DataSourceParams)
       PEventStore.aggregateProperties(
         appName = dsp.appName,
         entityType = item)(sc)
-    ).reduce(_.union(_)).repartition(sc.defaultParallelism)
+        .map(p => (
+          (p._1, PropertyMap(p._2.fields ++ Map("type" -> JString(item)), DateTime.now(), DateTime.now()))))).reduce(_.union(_))
+      .repartition(sc.defaultParallelism)
     logger.debug(s"FieldsRDD\n${fieldsRDD.take(25).mkString("\n")}")
 
     // Have a list of (actionName, RDD), for each action
