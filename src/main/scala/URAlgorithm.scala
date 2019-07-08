@@ -108,13 +108,13 @@ case class URAlgorithmParams(
   */
 
 case class RankingParams(
-    name: Option[String] = None,
-    `type`: Option[String] = None, // See [[com.actionml.BackfillType]]
-    eventNames: Option[Seq[String]] = None, // None means use the algo eventNames list, otherwise a list of events
-    offsetDate: Option[String] = None, // used only for tests, specifies the offset date to start the duration so the most
-    // recent date for events going back by from the more recent offsetDate - duration
-    endDate: Option[String] = None,
-    duration: Option[String] = None) { // duration worth of events to use in calculation of backfill
+  name: Option[String] = None,
+  `type`: Option[String] = None, // See [[com.actionml.BackfillType]]
+  eventNames: Option[Seq[String]] = None, // None means use the algo eventNames list, otherwise a list of events
+  offsetDate: Option[String] = None, // used only for tests, specifies the offset date to start the duration so the most
+  // recent date for events going back by from the more recent offsetDate - duration
+  endDate: Option[String] = None,
+  duration: Option[String] = None) { // duration worth of events to use in calculation of backfill
   override def toString: String = {
     s"""
        |name: $name,
@@ -145,6 +145,7 @@ case class URAlgorithmParams(
   typeName: String, // can optionally be used to specify the elasticsearch type name
   recsModel: Option[String] = None, // "all", "collabFiltering", "backfill"
   eventNames: Option[Seq[String]], // names used to ID all user actions
+  itemNames: Option[Seq[String]], // names used to ID all user actions
   blacklistEvents: Option[Seq[String]] = None, // None means use the primary event, empty array means no filter
   // number of events in user-based recs query
   maxQueryEvents: Option[Int] = None,
@@ -233,6 +234,10 @@ class URAlgorithm(val ap: URAlgorithmParams)
     } else { ap.eventNames.get }
   } else { ap.indicators.get.map(_.name) }
 
+  lazy val modelItemNames = if (ap.itemNames.isEmpty) {
+    throw new IllegalArgumentException("No itemNames in engine.json and one of these is required")
+  } else { ap.itemNames.get }
+
   val blacklistEvents = ap.blacklistEvents.getOrElse(Seq(modelEventNames.head)) // empty Seq[String] means no blacklist
   val returnSelf: Boolean = ap.returnSelf.getOrElse(DefaultURAlgoParams.ReturnSelf)
   val fields: Seq[Field] = ap.fields.getOrEmpty
@@ -276,6 +281,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
     ("ES type name", esType),
     ("RecsModel", recsModel),
     ("Event names", modelEventNames),
+    ("Item names", modelItemNames),
     ("══════════════════════════════", "════════════════════════════"),
     ("Random seed", randomSeed),
     ("MaxCorrelatorsPerEventType", maxCorrelatorsPerEventType),
@@ -399,6 +405,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
   }
 
   var queryEventNames: Seq[String] = Seq.empty[String] // if passed in with the query overrides the engine.json list--used in MAP@k
+  var queryItemNames: Seq[String] = Seq.empty[String]
   //testing, this only effects which events are used in queries.
 
   /** Return a list of items recommended for a user identified in the query
@@ -484,6 +491,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
   def predict(model: NullModel, query: Query): PredictedResult = {
 
     queryEventNames = query.eventNames.getOrElse(modelEventNames) // eventNames in query take precedence
+    queryItemNames = query.itemNames.getOrElse(modelItemNames) // eventNames in query take precedence
 
     val (queryStr, blacklist) = buildQuery(ap, query, rankingFieldNames)
     // old es1 query
@@ -543,7 +551,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
       val duration = Duration(durationAsString).toSeconds.toInt
       val backfillEvents = rankingParams.eventNames.getOrElse(modelEventNames.take(1))
       val offsetDate = rankingParams.offsetDate
-      val rankRdd = popModel.calc(modelName = rankingType, eventNames = backfillEvents, appName, duration, offsetDate)
+      val itemNames = modelItemNames
+      val rankRdd = popModel.calc(modelName = rankingType, eventNames = backfillEvents, itemNames, appName, duration, offsetDate)
       rankingFieldName -> rankRdd
     }
 
@@ -795,20 +804,21 @@ class URAlgorithm(val ap: URAlgorithmParams)
   def getBiasedRecentUserActions(query: Query): (Seq[BoostableCorrelators], Seq[Event]) = {
 
     val recentEvents = try {
-      LEventStore.findByEntity(
-        appName = appName,
-        // entityType and entityId is specified for fast lookup
-        entityType = "user",
-        entityId = query.user.get,
-        // one query per eventName is not ideal, maybe one query for lots of events then split by eventName
-        // eventNames = Some(Seq(action)),// get all and separate later
-        eventNames = Some(queryEventNames), // get all and separate later
-        // targetEntityType = None,
-        // limit = Some(maxQueryEvents), // this will get all history then each action can be limited before using in
-        // the query
-        latest = true,
-        // set time limit to avoid super long DB access
-        timeout = Duration(200, "millis")).toSeq
+      queryItemNames.map(item =>
+        LEventStore.findByEntity(
+          appName = appName,
+          // entityType and entityId is specified for fast lookup
+          entityType = "user",
+          entityId = query.user.get,
+          // one query per eventName is not ideal, maybe one query for lots of events then split by eventName
+          // eventNames = Some(Seq(action)),// get all and separate later
+          eventNames = Some(queryEventNames), // get all and separate later
+          targetEntityType = Some(Some(item)),
+          // limit = Some(maxQueryEvents), // this will get all history then each action can be limited before using in
+          // the query
+          latest = true,
+          // set time limit to avoid super long DB access
+          timeout = Duration(200, "millis")).toSeq).reduce(_.union(_))
     } catch {
       case e: scala.concurrent.TimeoutException =>
         logger.error(s"Timeout when reading recent events. Empty list is used. $e")

@@ -46,6 +46,7 @@ case class Query(
   num: Option[Int] = None, // default: whatever is in algorithm params, which itself has a default--probably 20
   from: Option[Int] = None, // paginate from this position return "num"
   eventNames: Option[List[String]], // names used to ID all user actions
+  itemNames: Option[List[String]], // names used to ID all user actions
   withRanks: Option[Boolean] = None) // Add to ItemScore rank fields values, default false
     extends Serializable
 

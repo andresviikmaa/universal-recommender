@@ -30,10 +30,10 @@ import com.actionml.helpers.{ IndexedDatasetConversions, ItemID, ItemProps }
 
 /** Universal Recommender models to save in ES */
 class URModel(
-    coocurrenceMatrices: Seq[(ItemID, IndexedDataset)] = Seq.empty,
-    propertiesRDDs: Seq[RDD[(ItemID, ItemProps)]] = Seq.empty,
-    typeMappings: Map[String, (String, Boolean)] = Map.empty, // maps fieldname that need type mapping in Elasticsearch
-    nullModel: Boolean = false)(implicit sc: SparkContext) {
+  coocurrenceMatrices: Seq[(ItemID, IndexedDataset)] = Seq.empty,
+  propertiesRDDs: Seq[RDD[(ItemID, ItemProps)]] = Seq.empty,
+  typeMappings: Map[String, (String, Boolean)] = Map.empty, // maps fieldname that need type mapping in Elasticsearch
+  nullModel: Boolean = false)(implicit sc: SparkContext) {
 
   @transient lazy val logger: Logger = Logger[this.type]
 

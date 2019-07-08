@@ -57,6 +57,7 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
   def calc(
     modelName: String,
     eventNames: Seq[String],
+    itemNames: Seq[String],
     appName: String,
     duration: Int = 0,
     offsetDate: Option[String] = None): RDD[(ItemID, Double)] = {
@@ -80,9 +81,9 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
 
     // if None? debatable, this is either an error or may need to default to popular, why call popModel otherwise
     modelName match {
-      case RankingType.Popular     => calcPopular(appName, eventNames, interval)
-      case RankingType.Trending    => calcTrending(appName, eventNames, interval)
-      case RankingType.Hot         => calcHot(appName, eventNames, interval)
+      case RankingType.Popular     => calcPopular(appName, eventNames, itemNames, interval)
+      case RankingType.Trending    => calcTrending(appName, eventNames, itemNames, interval)
+      case RankingType.Hot         => calcHot(appName, eventNames, itemNames, interval)
       case RankingType.Random      => calcRandom(appName, interval)
       case RankingType.UserDefined => sc.emptyRDD
       case unknownRankingType =>
@@ -113,8 +114,9 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
   def calcPopular(
     appName: String,
     eventNames: Seq[String],
+    itemNames: Seq[String],
     interval: Interval): RDD[(ItemID, Double)] = {
-    val events = eventsRDD(appName, eventNames, interval)
+    val events = eventsRDD(appName, eventNames, itemNames, interval)
     events.map { e => (e.targetEntityId, e.event) }
       .groupByKey()
       .map { case (itemID, itEvents) => (itemID.get, itEvents.size.toDouble) }
@@ -128,6 +130,7 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
   def calcTrending(
     appName: String,
     eventNames: Seq[String],
+    itemNames: Seq[String],
     interval: Interval): RDD[(ItemID, Double)] = {
 
     logger.info(s"Current Interval: $interval, ${interval.toDurationMillis}")
@@ -137,9 +140,9 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
     val newerInterval = new Interval(interval.getStart.plus(halfInterval), interval.getEnd)
     logger.info(s"Newer Interval: $newerInterval")
 
-    val olderPopRDD = calcPopular(appName, eventNames, olderInterval)
+    val olderPopRDD = calcPopular(appName, eventNames, itemNames, olderInterval)
     if (!olderPopRDD.isEmpty()) {
-      val newerPopRDD = calcPopular(appName, eventNames, newerInterval)
+      val newerPopRDD = calcPopular(appName, eventNames, itemNames, newerInterval)
       newerPopRDD.join(olderPopRDD).map {
         case (item, (newerScore, olderScore)) => item -> (newerScore - olderScore)
       }
@@ -153,6 +156,7 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
   def calcHot(
     appName: String,
     eventNames: Seq[String] = List.empty,
+    itemNames: Seq[String] = List.empty,
     interval: Interval): RDD[(ItemID, Double)] = {
 
     logger.info(s"Current Interval: $interval, ${interval.toDurationMillis}")
@@ -163,11 +167,11 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
     val newerInterval = new Interval(middleInterval.getEnd, interval.getEnd)
     logger.info(s"Newer Interval: $newerInterval")
 
-    val olderPopRDD = calcPopular(appName, eventNames, olderInterval)
+    val olderPopRDD = calcPopular(appName, eventNames, itemNames, olderInterval)
     if (!olderPopRDD.isEmpty()) { // todo: may want to allow an interval with no events, give them 0 counts
-      val middlePopRDD = calcPopular(appName, eventNames, middleInterval)
+      val middlePopRDD = calcPopular(appName, eventNames, itemNames, middleInterval)
       if (!middlePopRDD.isEmpty()) {
-        val newerPopRDD = calcPopular(appName, eventNames, newerInterval)
+        val newerPopRDD = calcPopular(appName, eventNames, itemNames, newerInterval)
         val newVelocityRDD = newerPopRDD.join(middlePopRDD).map {
           case (item, (newerScore, middleScore)) => item -> (newerScore - middleScore)
         }
@@ -184,14 +188,17 @@ class PopModel(fieldsRDD: RDD[(ItemID, ItemProps)])(implicit sc: SparkContext) {
   def eventsRDD(
     appName: String,
     eventNames: Seq[String] = Seq.empty,
+    itemNames: Seq[String] = List.empty,
     interval: Interval): RDD[Event] = {
 
     logger.info(s"PopModel getting eventsRDD for startTime: ${interval.getStart} and endTime ${interval.getEnd}")
-    PEventStore.find(
+    itemNames.map(item => PEventStore.find(
       appName = appName,
       startTime = Some(interval.getStart),
       untilTime = Some(interval.getEnd),
-      eventNames = if (eventNames.nonEmpty) Some(eventNames) else None)(sc).repartition(sc.defaultParallelism)
+      eventNames = if (eventNames.nonEmpty) Some(eventNames) else None,
+      targetEntityType = Some(Some(item)))(sc)).reduce(_.union(_)).repartition(sc.defaultParallelism)
+
   }
 
 }

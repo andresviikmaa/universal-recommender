@@ -36,6 +36,7 @@ import com.actionml.helpers._
 case class DataSourceParams(
   appName: String,
   eventNames: List[String], // IMPORTANT: eventNames must be exactly the same as URAlgorithmParams eventNames
+  itemNames: List[String], // IMPORTANT: eventNames must be exactly the same as URAlgorithmParams eventNames
   eventWindow: Option[EventWindow],
   minEventsPerUser: Option[Int]) // defaults to 1 event, if the user has only one thehy will not contribute to
     // training anyway
@@ -59,21 +60,23 @@ class DataSource(val dsp: DataSourceParams)
     ("App name", appName),
     ("Event window", eventWindow),
     ("Event names", dsp.eventNames),
+    ("Item names", dsp.itemNames),
     ("Min events per user", dsp.minEventsPerUser)))
 
   /** Reads events from PEventStore and create and RDD for each */
   override def readTraining(sc: SparkContext): TrainingData = {
 
     val eventNames = dsp.eventNames
+    val itemNames = dsp.itemNames
 
     // beware! the following call most likely will alter the event stream in the DB!
     cleanPersistedPEvents(sc) // broken in apache-pio v0.10.0-incubating it erases all data!!!!!!
 
-    val eventsRDD = PEventStore.find(
+    val eventsRDD = itemNames.map(item => PEventStore.find(
       appName = dsp.appName,
       entityType = Some("user"),
       eventNames = Some(eventNames),
-      targetEntityType = Some(Some("item")))(sc).repartition(sc.defaultParallelism)
+      targetEntityType = Some(Some(item)))(sc)).reduce(_.union(_)).repartition(sc.defaultParallelism)
 
     // now separate the events by event name
     val eventRDDs: List[(ActionID, RDD[(UserID, ItemID)])] = eventNames.map { eventName =>
@@ -91,9 +94,10 @@ class DataSource(val dsp: DataSourceParams)
     logger.info(s"Received events ${eventRDDs.map(_._1)}")
 
     // aggregating all $set/$unsets for metadata fields, which are attached to items
-    val fieldsRDD: RDD[(ItemID, PropertyMap)] = PEventStore.aggregateProperties(
-      appName = dsp.appName,
-      entityType = "item")(sc).repartition(sc.defaultParallelism)
+    val fieldsRDD: RDD[(ItemID, PropertyMap)] = itemNames.map(item =>
+      PEventStore.aggregateProperties(
+        appName = dsp.appName,
+        entityType = item)(sc)).reduce(_.union(_)).repartition(sc.defaultParallelism)
     //    logger.debug(s"FieldsRDD\n${fieldsRDD.take(25).mkString("\n")}")
 
     // Have a list of (actionName, RDD), for each action
@@ -109,9 +113,9 @@ class DataSource(val dsp: DataSourceParams)
  *  @param minEventsPerUser users with less than this many events will not removed from training data
  */
 case class TrainingData(
-    actions: Seq[(ActionID, RDD[(UserID, ItemID)])],
-    fieldsRDD: RDD[(ItemID, PropertyMap)],
-    minEventsPerUser: Option[Int] = Some(1)) extends Serializable {
+  actions: Seq[(ActionID, RDD[(UserID, ItemID)])],
+  fieldsRDD: RDD[(ItemID, PropertyMap)],
+  minEventsPerUser: Option[Int] = Some(1)) extends Serializable {
 
   override def toString: String = {
     val a = actions.map { t =>
