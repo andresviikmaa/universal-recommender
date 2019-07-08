@@ -164,6 +164,7 @@ case class URAlgorithmParams(
   expireDateName: Option[String] = None,
   // used as the subject of a dateRange in queries, specifies the name of the item property
   dateName: Option[String] = None,
+  extraProperiesNames: Option[List[String]],
   indicators: Option[List[IndicatorParams]] = None, // control params per matrix pair
   seed: Option[Long] = None, // seed is not used presently
   numESWriteConnections: Option[Int] = None) // hint about how to coalesce partitions so we don't overload ES when
@@ -406,6 +407,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
   var queryEventNames: Seq[String] = Seq.empty[String] // if passed in with the query overrides the engine.json list--used in MAP@k
   var queryItemNames: Seq[String] = Seq.empty[String]
+  var queryExtraProperiesNames: Seq[String] = Seq.empty[String]
   //testing, this only effects which events are used in queries.
 
   /** Return a list of items recommended for a user identified in the query
@@ -492,6 +494,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
     queryEventNames = query.eventNames.getOrElse(modelEventNames) // eventNames in query take precedence
     queryItemNames = query.itemNames.getOrElse(modelItemNames) // eventNames in query take precedence
+    queryExtraProperiesNames = query.extraProperiesNames.getOrElse(ap.extraProperiesNames.getOrElse(Seq())) // eventNames in query take precedence
 
     val (queryStr, blacklist) = buildQuery(ap, query, rankingFieldNames)
     // old es1 query
@@ -503,8 +506,9 @@ class URAlgorithm(val ap: URAlgorithmParams)
       case Some(searchHits) =>
         val hits = (searchHits \ "hits" \ "hits").extract[Seq[JValue]]
         val recs = hits.map { hit =>
+          val source = hit \ "_source"
+          val properties = queryExtraProperiesNames.map(prop => (prop -> (source \ prop).extract[String])).toMap
           if (withRanks) {
-            val source = hit \ "source"
             val ranks: Map[String, Double] = rankingsParams map { backfillParams =>
               val backfillType = backfillParams.`type`.getOrElse(DefaultURAlgoParams.BackfillType)
               val backfillFieldName = backfillParams.name.getOrElse(PopModel.nameByType(backfillType))
@@ -512,9 +516,11 @@ class URAlgorithm(val ap: URAlgorithmParams)
             } toMap
 
             ItemScore((hit \ "_id").extract[String], (hit \ "_score").extract[Double],
-              ranks = if (ranks.nonEmpty) Some(ranks) else None)
+              ranks = if (ranks.nonEmpty) Some(ranks) else None,
+              properties = if (properties.nonEmpty) Some(properties) else None)
           } else {
-            ItemScore((hit \ "_id").extract[String], (hit \ "_score").extract[Double])
+            ItemScore((hit \ "_id").extract[String], (hit \ "_score").extract[Double],
+              properties = if (properties.nonEmpty) Some(properties) else None)
           }
         }.toArray
         logger.info(s"Results: ${hits.length} retrieved of a possible ${(searchHits \ "hits" \ "total").extract[Long]}")

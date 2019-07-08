@@ -217,7 +217,7 @@ object EsClient {
           val entity = new NStringEntity(
             mappings,
             ContentType.
-            APPLICATION_JSON)
+              APPLICATION_JSON)
 
           client.
             performRequest(

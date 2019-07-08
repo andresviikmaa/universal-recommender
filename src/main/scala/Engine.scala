@@ -47,6 +47,7 @@ case class Query(
   from: Option[Int] = None, // paginate from this position return "num"
   eventNames: Option[List[String]], // names used to ID all user actions
   itemNames: Option[List[String]], // names used to ID all user actions
+  extraProperiesNames: Option[List[String]],
   withRanks: Option[Boolean] = None) // Add to ItemScore rank fields values, default false
     extends Serializable
 
@@ -71,9 +72,11 @@ case class PredictedResult(
     extends Serializable
 
 case class ItemScore(
-  item: ItemID, // item id
+  itemId: String, // item id
+  //  itemType: String, // item id
   score: Double, // used to rank, original score returned from teh search engine
-  ranks: Option[Map[String, Double]] = None)
+  ranks: Option[Map[String, Double]] = None,
+  properties: Option[Map[String, String]] = None)
     extends Serializable
 
 object RecommendationEngine extends EngineFactory {
