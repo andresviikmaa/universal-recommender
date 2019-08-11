@@ -507,7 +507,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
         val hits = (searchHits \ "hits" \ "hits").extract[Seq[JValue]]
         val recs = hits.map { hit =>
           val source = hit \ "_source"
-          val properties = queryExtraProperiesNames.map(prop => (prop, (source \ prop).extractOpt[String]))
+          val properties = queryExtraProperiesNames.map(prop => (prop, (source \ prop).extractOpt[Any]))
             .filter(_._2.nonEmpty).map(p => (p._1 -> p._2.get)).toMap
           if (withRanks) {
             val ranks: Map[String, Double] = rankingsParams map { backfillParams =>

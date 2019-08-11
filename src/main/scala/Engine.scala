@@ -76,7 +76,7 @@ case class ItemScore(
   itemType: String, // item id
   score: Double, // used to rank, original score returned from teh search engine
   ranks: Option[Map[String, Double]] = None,
-  properties: Option[Map[String, String]] = None)
+  properties: Option[Map[String, Any]] = None)
     extends Serializable
 
 object RecommendationEngine extends EngineFactory {
