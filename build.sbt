@@ -14,15 +14,15 @@ scalaVersion in ThisBuild := "2.11.11"
 
 val mahoutVersion = "0.13.0"
 
-val pioVersion = "0.12.0-incubating"
+val pioVersion = "0.14.0"
 
-val elasticsearchVersion = "5.5.2"
+val elasticsearchVersion = "7.2.0"
 
 val sparkVersion = "2.1.1"
 
 libraryDependencies ++= Seq(
   "org.apache.predictionio" %% "apache-predictionio-core" % pioVersion % "provided",
-  "org.elasticsearch.client" % "rest" % elasticsearchVersion,
+  "org.elasticsearch.client" % "elasticsearch-rest-client" % elasticsearchVersion,
   "org.elasticsearch"       %% "elasticsearch-spark-20" % elasticsearchVersion % "provided"
     exclude("org.apache.spark", "*"),
   "org.elasticsearch"        % "elasticsearch-hadoop-mr"  % elasticsearchVersion % "provided",

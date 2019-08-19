@@ -142,7 +142,6 @@ case class IndicatorParams(
 case class URAlgorithmParams(
   appName: String, // filled in from engine.json
   indexName: String, // can optionally be used to specify the elasticsearch index name
-  typeName: String, // can optionally be used to specify the elasticsearch type name
   recsModel: Option[String] = None, // "all", "collabFiltering", "backfill"
   eventNames: Option[Seq[String]], // names used to ID all user actions
   itemNames: Option[Seq[String]], // names used to ID all user actions
@@ -273,7 +272,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
     ap.expireDateName).collect { case Some(date) => date } distinct
 
   val esIndex: String = ap.indexName
-  val esType: String = ap.typeName
+  val esType: String = "_doc"
 
   drawInfo("Init URAlgorithm", Seq(
     ("══════════════════════════════", "════════════════════════════"),
@@ -524,7 +523,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
               properties = if (properties.nonEmpty) Some(properties) else None)
           }
         }.toArray
-        logger.info(s"Results: ${hits.length} retrieved of a possible ${(searchHits \ "hits" \ "total").extract[Long]}")
+        logger.info(s"Results: ${hits.length} retrieved of a possible ${(searchHits \ "hits" \ "total" \ "value").extract[Long]}")
         PredictedResult(recs)
 
       case _ =>

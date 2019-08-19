@@ -48,6 +48,7 @@ import com.actionml.helpers.{ ItemID, ItemProps }
 import scala.collection.immutable
 import scala.collection.parallel.mutable
 import scala.collection.JavaConverters._
+import ESCompability.ToOldClient
 
 /** Elasticsearch notes:
  *  1) every query clause will affect scores unless it has a constant_score and boost: 0
@@ -179,7 +180,6 @@ object EsClient {
           var mappings =
             s"""
               |{ "mappings": {
-              |    "$indexType": {
               |      "properties": {
             """.stripMargin.replace("\n", "")
 
@@ -197,7 +197,7 @@ object EsClient {
               |    "last": {
               |      "type": "keyword"
               |    }
-              |}}}}
+              |}}}
             """.stripMargin.replace("\n", "")
 
           fieldNames.foreach { fieldName =>
@@ -282,7 +282,7 @@ object EsClient {
       indexRDD
     }
 
-    val newIndexURI = "/" + newIndex + "/" + typeName
+    val newIndexURI = "/" + newIndex
     // TODO check if {"es.mapping.id": "id"} works on ESHadoop Interface of ESv5
     // Repartition to fit into Elasticsearch concurrency limits.
 
@@ -465,7 +465,7 @@ object EsClient {
     alias: String,
     typeName: String)(implicit sc: SparkContext): RDD[(ItemID, ItemProps)] = {
     getIndexName(alias)
-      .map(index => sc.esJsonRDD(alias + "/" + typeName) map { case (itemId, json) => itemId -> DataMap(json).fields })
+      .map(index => sc.esJsonRDD(alias) map { case (itemId, json) => itemId -> DataMap(json).fields })
       .getOrElse(sc.emptyRDD)
   }
 
