@@ -163,7 +163,7 @@ case class URAlgorithmParams(
   expireDateName: Option[String] = None,
   // used as the subject of a dateRange in queries, specifies the name of the item property
   dateName: Option[String] = None,
-  extraProperiesNames: Option[List[String]],
+  extraPropertiesNames: Option[List[String]],
   indicators: Option[List[IndicatorParams]] = None, // control params per matrix pair
   seed: Option[Long] = None, // seed is not used presently
   numESWriteConnections: Option[Int] = None) // hint about how to coalesce partitions so we don't overload ES when
@@ -238,6 +238,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
     throw new IllegalArgumentException("No itemNames in engine.json and one of these is required")
   } else { ap.itemNames.get }
 
+  lazy val modelExtraPropertiesNames = ap.extraPropertiesNames.getOrElse(Seq.empty)
+
   val blacklistEvents = ap.blacklistEvents.getOrElse(Seq(modelEventNames.head)) // empty Seq[String] means no blacklist
   val returnSelf: Boolean = ap.returnSelf.getOrElse(DefaultURAlgoParams.ReturnSelf)
   val fields: Seq[Field] = ap.fields.getOrEmpty
@@ -282,6 +284,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
     ("RecsModel", recsModel),
     ("Event names", modelEventNames),
     ("Item names", modelItemNames),
+    ("Extra properties names", modelExtraPropertiesNames),
     ("══════════════════════════════", "════════════════════════════"),
     ("Random seed", randomSeed),
     ("MaxCorrelatorsPerEventType", maxCorrelatorsPerEventType),
@@ -406,7 +409,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
   var queryEventNames: Seq[String] = Seq.empty[String] // if passed in with the query overrides the engine.json list--used in MAP@k
   var queryItemNames: Seq[String] = Seq.empty[String]
-  var queryExtraProperiesNames: Seq[String] = Seq.empty[String]
+  var queryExtraPropertiesNames: Seq[String] = Seq.empty[String]
   //testing, this only effects which events are used in queries.
 
   /** Return a list of items recommended for a user identified in the query
@@ -493,7 +496,11 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
     queryEventNames = query.eventNames.getOrElse(modelEventNames) // eventNames in query take precedence
     queryItemNames = query.itemNames.getOrElse(modelItemNames) // eventNames in query take precedence
-    queryExtraProperiesNames = query.extraProperiesNames.getOrElse(ap.extraProperiesNames.getOrElse(Seq())) // eventNames in query take precedence
+    queryExtraPropertiesNames = query.extraPropertiesNames.getOrElse(modelExtraPropertiesNames) // eventNames in query take precedence
+
+    logger.info(s"queryEventNames ${queryEventNames}")
+    logger.info(s"queryItemNames ${queryItemNames}")
+    logger.info(s"queryExtraPropertiesNames ${queryExtraPropertiesNames}")
 
     val (queryStr, blacklist) = buildQuery(ap, query, rankingFieldNames)
     // old es1 query
@@ -506,7 +513,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
         val hits = (searchHits \ "hits" \ "hits").extract[Seq[JValue]]
         val recs = hits.map { hit =>
           val source = hit \ "_source"
-          val properties = queryExtraProperiesNames.map(prop => (prop, (source \ prop).extractOpt[Any]))
+          val properties = queryExtraPropertiesNames.map(prop => (prop, (source \ prop).extractOpt[Any]))
             .filter(_._2.nonEmpty).map(p => (p._1 -> p._2.get)).toMap
           if (withRanks) {
             val ranks: Map[String, Double] = rankingsParams map { backfillParams =>

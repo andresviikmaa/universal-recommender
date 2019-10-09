@@ -47,7 +47,7 @@ case class Query(
   from: Option[Int] = None, // paginate from this position return "num"
   eventNames: Option[List[String]], // names used to ID all user actions
   itemNames: Option[List[String]], // names used to ID all user actions
-  extraProperiesNames: Option[List[String]],
+  extraPropertiesNames: Option[List[String]],
   withRanks: Option[Boolean] = None) // Add to ItemScore rank fields values, default false
     extends Serializable
 
