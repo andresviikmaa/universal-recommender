@@ -206,11 +206,13 @@ object EsClient {
                 (s""""$fieldName"""" + mappingsField(typeMappings(
                   fieldName)._1))
             else // unspecified fields are treated as not_analyzed strings
-              mappings += (s""""$fieldName"""" + mappingsField(
-                "keyword"))
+              mappings += (s""""$fieldName":{"enabled":false},""")
           }
 
           mappings += mappingsTail
+
+          logger.info(s"Elasticsearch index mapping" + mappings)
+
           // "id" string is not_analyzed and does not use norms
           // val entity = new NStringEntity(mappings, ContentType.APPLICATION_JSON)
           //logger.info(s"Create index with:\n$indexName\n$mappings\n")

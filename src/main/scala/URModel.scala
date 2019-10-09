@@ -67,7 +67,7 @@ class URModel(
       iter map {
         case (itemId, itemProps) =>
           val propsMap = itemProps.map {
-            case (propName, propValue) if !"JObject".equals(propValue) =>
+            case (propName, propValue) =>
               propName -> URModel.extractJvalue(dateNames, propName, propValue)
           }
           propsMap + ("id" -> itemId)
@@ -136,8 +136,10 @@ object URModel {
     case JDouble(double) => double
     case JInt(int)       => int
     case JBool(bool)     => bool
-    case JObject(o)      => "JObject"
-    case _               => value
+    case JObject(o) => o.toMap.map {
+      case (name, value) => (name -> extractJvalue(dateNames, "dummy", value))
+    }
+    case _ => value
   }
 
 }

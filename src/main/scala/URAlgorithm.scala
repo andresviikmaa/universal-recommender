@@ -496,7 +496,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
     queryEventNames = query.eventNames.getOrElse(modelEventNames) // eventNames in query take precedence
     queryItemNames = query.itemNames.getOrElse(modelItemNames) // eventNames in query take precedence
-    queryExtraPropertiesNames = query.extraPropertiesNames.getOrElse(modelExtraPropertiesNames) // eventNames in query take precedence
+    queryExtraPropertiesNames = query.extraPropertiesNames.getOrElse(Seq.empty) ++ modelExtraPropertiesNames // eventNames in query take precedence
 
     logger.info(s"queryEventNames ${queryEventNames}")
     logger.info(s"queryItemNames ${queryItemNames}")
