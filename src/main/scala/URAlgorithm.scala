@@ -164,6 +164,7 @@ case class URAlgorithmParams(
   // used as the subject of a dateRange in queries, specifies the name of the item property
   dateName: Option[String] = None,
   extraPropertiesNames: Option[List[String]],
+  businessRuleNames: Option[List[String]],
   indicators: Option[List[IndicatorParams]] = None, // control params per matrix pair
   seed: Option[Long] = None, // seed is not used presently
   numESWriteConnections: Option[Int] = None) // hint about how to coalesce partitions so we don't overload ES when
@@ -272,6 +273,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
     ap.dateName,
     ap.availableDateName,
     ap.expireDateName).collect { case Some(date) => date } distinct
+
+  val businessRuleNames = ap.businessRuleNames.getOrElse(Seq.empty)
 
   val esIndex: String = ap.indexName
   val esType: String = "_doc"
@@ -984,7 +987,11 @@ class URAlgorithm(val ap: URAlgorithmParams)
       }.toMap ++
       dateNames.map { dateName =>
         dateName -> ("date", false) // map dates to be interpreted as dates
-      }
+      }.toMap ++
+      businessRuleNames.map { bizruleName =>
+        bizruleName -> ("keyword", true) // use norms with correlators to get closer to cosine similarity.
+      }.toMap
+
     logger.info(s"Index mappings for the Elasticsearch URModel: $mappings")
     mappings
   }
