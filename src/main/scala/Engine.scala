@@ -52,6 +52,12 @@ case class Query(
     extends Serializable
 
 /** Used to specify how Fields are represented in engine.json */
+case class FieldBias( // no optional values for fields, whne specified
+  name: String, // name of metadata field
+  bias: Float) // any positive value is a boost, negative is an inclusion filter, 0 is an exclusion filter
+    extends Serializable
+
+/** Used to specify how Fields are represented in engine.json */
 case class Field( // no optional values for fields, whne specified
   name: String, // name of metadata field
   values: Seq[String], // fields can have multiple values like tags of a single value as when using hierarchical

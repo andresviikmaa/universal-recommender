@@ -19,6 +19,7 @@ package com.actionml
 
 import java.util
 
+import com.actionml.URModel.extractJvalue
 import grizzled.slf4j.Logger
 import org.apache.predictionio.controller.{ P2LAlgorithm, Params }
 import org.apache.predictionio.data.storage.{ DataMap, Event, NullModel, PropertyMap }
@@ -34,6 +35,7 @@ import org.json4s.JsonAST._
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import com.actionml.helpers._
+import spire.syntax.field
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.Duration
@@ -155,6 +157,7 @@ case class URAlgorithmParams(
   itemBias: Option[Float] = None, // will cause the default search engine boost of 1.0
   returnSelf: Option[Boolean] = None, // query building logic defaults this to false
   fields: Option[Seq[Field]] = None, //defaults to no fields
+  fieldBiases: Option[Seq[FieldBias]] = None,
   // leave out for default or popular
   rankings: Option[Seq[RankingParams]] = None,
   // name of date property field for when the item is available
@@ -163,8 +166,8 @@ case class URAlgorithmParams(
   expireDateName: Option[String] = None,
   // used as the subject of a dateRange in queries, specifies the name of the item property
   dateName: Option[String] = None,
-  extraPropertiesNames: Option[List[String]],
-  businessRuleNames: Option[List[String]],
+  extraPropertiesNames: Option[List[String]] = None,
+  businessRuleNames: Option[List[String]] = None,
   indicators: Option[List[IndicatorParams]] = None, // control params per matrix pair
   seed: Option[Long] = None, // seed is not used presently
   numESWriteConnections: Option[Int] = None) // hint about how to coalesce partitions so we don't overload ES when
@@ -240,10 +243,12 @@ class URAlgorithm(val ap: URAlgorithmParams)
   } else { ap.itemNames.get }
 
   lazy val modelExtraPropertiesNames = ap.extraPropertiesNames.getOrElse(Seq.empty)
+  lazy val modelBusinessRulesNames = ap.businessRuleNames.getOrElse(Seq.empty)
 
-  val blacklistEvents = ap.blacklistEvents.getOrElse(Seq(modelEventNames.head)) // empty Seq[String] means no blacklist
+  lazy val blacklistEvents = ap.blacklistEvents.getOrElse(Seq(modelEventNames.head)) // empty Seq[String] means no blacklist
   val returnSelf: Boolean = ap.returnSelf.getOrElse(DefaultURAlgoParams.ReturnSelf)
   val fields: Seq[Field] = ap.fields.getOrEmpty
+  lazy val fieldBiases: Map[String, Float] = ap.fieldBiases.getOrEmpty.map(eb => (eb.name -> eb.bias)).toMap
 
   val randomSeed: Int = ap.seed.getOrElse(System.currentTimeMillis()).toInt
 
@@ -274,8 +279,6 @@ class URAlgorithm(val ap: URAlgorithmParams)
     ap.availableDateName,
     ap.expireDateName).collect { case Some(date) => date } distinct
 
-  val businessRuleNames = ap.businessRuleNames.getOrElse(Seq.empty)
-
   val esIndex: String = ap.indexName
   val esType: String = "_doc"
 
@@ -288,6 +291,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
     ("Event names", modelEventNames),
     ("Item names", modelItemNames),
     ("Extra properties names", modelExtraPropertiesNames),
+    ("Business Rules names", modelBusinessRulesNames),
     ("══════════════════════════════", "════════════════════════════"),
     ("Random seed", randomSeed),
     ("MaxCorrelatorsPerEventType", maxCorrelatorsPerEventType),
@@ -516,8 +520,14 @@ class URAlgorithm(val ap: URAlgorithmParams)
         val hits = (searchHits \ "hits" \ "hits").extract[Seq[JValue]]
         val recs = hits.map { hit =>
           val source = hit \ "_source"
-          val properties = queryExtraPropertiesNames.map(prop => (prop, (source \ prop).extractOpt[Any]))
-            .filter(_._2.nonEmpty).map(p => (p._1 -> p._2.get)).toMap
+          val properties: Map[String, Any] = source match {
+            case JObject(o) => o.toMap
+              .filterNot({ case (prop, value) => modelEventNames.contains(prop) })
+              .map({ case (name, value) => (name -> extractJvalue(dateNames, name, value)) })
+            case _ => Map.empty
+          }
+          //val properties = queryExtraPropertiesNames.map(prop => (prop, (source \ prop).extractOpt[Any]))
+          //  .filter(_._2.nonEmpty).map(p => (p._1 -> p._2.get)).toMap
           if (withRanks) {
             val ranks: Map[String, Double] = rankingsParams map { backfillParams =>
               val backfillType = backfillParams.`type`.getOrElse(DefaultURAlgoParams.BackfillType)
@@ -682,10 +692,16 @@ class URAlgorithm(val ap: URAlgorithmParams)
       // only use non-zero boosts
       case BoostableCorrelators(actionName, itemIDs, boost) =>
         boost.getOrElse(1f) != 0f
-    }.map {
+      /*}.map {
       case BoostableCorrelators(actionName, itemIDs, boost) =>
         render("terms" -> (actionName -> itemIDs) ~ ("boost" -> boost))
+    }*/
+    }.flatMap {
+      case BoostableCorrelators(actionName, itemIDs, boost) =>
+        //render("terms" -> (actionName -> itemIDs) ~ ("boost" -> boost))
+        itemIDs.map(itemID => render("terms" -> (actionName -> Seq(itemID)) ~ ("boost" -> boost)))
     }
+
     logger.info(s"shouldFields is: ${shouldFields}")
 
     // todo: this should not be sent if there are no rankings, causes 0 scores to be returned as backfill even
@@ -834,7 +850,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
           // the query
           latest = true,
           // set time limit to avoid super long DB access
-          timeout = Duration(200, "millis")).toSeq).reduce(_.union(_))
+          timeout = Duration(10000, "millis")).toSeq).reduce(_.union(_))
     } catch {
       case e: scala.concurrent.TimeoutException =>
         logger.error(s"Timeout when reading recent events. Empty list is used. $e")
@@ -859,7 +875,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
         }
         // userBias may be None, which will cause no JSON output for this
       }
-      BoostableCorrelators(action, items.distinct, userEventsBoost)
+      val actionBias: Float = userEventsBoost.getOrElse(1.0f) * fieldBiases.getOrElse(action, 1.0f)
+      BoostableCorrelators(action, items.distinct, Some(actionBias))
     }
     (rActions, recentEvents)
   }
@@ -870,7 +887,9 @@ class URAlgorithm(val ap: URAlgorithmParams)
     val queryBoostedFields = query.fields.getOrEmpty.filter(_.bias > 0f)
 
     (queryBoostedFields ++ paramsBoostedFields)
-      .map(field => BoostableCorrelators(field.name, field.values, Some(field.bias)))
+      .map(field => {
+        BoostableCorrelators(field.name, field.values, Some(field.bias * fieldBiases.getOrElse(field.name, 1.0f)))
+      })
       .distinct // de-dup and favor query fields
   }
 
@@ -988,7 +1007,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
       dateNames.map { dateName =>
         dateName -> ("date", false) // map dates to be interpreted as dates
       }.toMap ++
-      businessRuleNames.map { bizruleName =>
+      modelBusinessRulesNames.map { bizruleName =>
         bizruleName -> ("keyword", true) // use norms with correlators to get closer to cosine similarity.
       }.toMap
 
